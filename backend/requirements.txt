@@ -1,0 +1,33 @@
+# 后端框架
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# 数据库（只保留SQLite支持）
+sqlalchemy==2.0.23
+
+# LangChain相关
+langchain==0.0.335
+langchain-community==0.0.6
+chromadb==0.4.17
+
+# 通义千问
+dashscope==1.14.1
+
+# 文档处理
+PyMuPDF==1.23.8
+pypdf==3.17.1
+
+# 中文分词
+jieba==0.42.1
+
+# 工具库
+pydantic==2.5.0
+python-dotenv==1.0.0
+numpy==1.24.3
+tiktoken==0.5.1
+requests==2.31.0
+
+# 开发工具
+pytest==7.4.3
+black==23.11.0 
