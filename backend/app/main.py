@@ -722,6 +722,101 @@ async def get_database_info():
         "debug_mode": os.getenv("DEBUG", "false").lower() == "true"
     }
 
+@app.post("/api/v1/documents/{document_id}/enhanced-query")
+async def enhanced_query_document(
+    document_id: str,
+    request: QueryRequest,
+    db: Session = Depends(get_db)
+):
+    """增强问答接口 - 使用混合检索和质量评估"""
+    
+    try:
+        # 检查文档是否存在且已完成处理
+        document = db.query(Document).filter(Document.id == document_id).first()
+        if not document:
+            raise HTTPException(status_code=404, detail="文档未找到")
+        
+        if document.status != "completed":
+            raise HTTPException(
+                status_code=400, 
+                detail=f"文档处理未完成，当前状态: {document.status}"
+            )
+        
+        # 使用增强问答方法
+        result = agent.answer_question_enhanced(
+            document_id=document_id,
+            question=request.question,
+            max_results=request.max_results
+        )
+        
+        if not result["success"]:
+            raise HTTPException(status_code=500, detail=result.get("error", "问答处理失败"))
+        
+        # 保存查询历史
+        query_history = QueryHistory(
+            document_id=document_id,
+            question=request.question,
+            answer=result["answer"],
+            confidence=result["confidence"],
+            processing_time=result["processing_time"]
+        )
+        db.add(query_history)
+        db.commit()
+        
+        return {
+            "answer": result["answer"],
+            "confidence": result["confidence"],
+            "quality_score": result.get("quality_score", 0.0),
+            "sources": result["sources"],
+            "processing_time": result["processing_time"],
+            "search_method": result.get("search_method", "enhanced"),
+            "document_id": document_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"增强问答处理失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="问答处理失败")
+
+@app.post("/api/v1/documents/{document_id}/enhanced-summary")
+async def generate_enhanced_document_summary(document_id: str, db: Session = Depends(get_db)):
+    """生成增强文档摘要"""
+    
+    try:
+        # 检查文档状态
+        document = db.query(Document).filter(Document.id == document_id).first()
+        if not document:
+            raise HTTPException(status_code=404, detail="文档未找到")
+        
+        if document.status != "completed":
+            raise HTTPException(
+                status_code=400, 
+                detail=f"文档处理未完成，当前状态: {document.status}"
+            )
+        
+        # 生成增强摘要
+        result = agent.generate_summary_enhanced(document_id)
+        
+        if not result["success"]:
+            raise HTTPException(status_code=500, detail=result.get("error", "摘要生成失败"))
+        
+        return {
+            "document_id": document_id,
+            "summary": result["summary"],
+            "key_points": result["key_points"],
+            "keywords": result["keywords"],
+            "quality_score": result["quality_score"],
+            "source_chunks": result["source_chunks"],
+            "generation_time": time.time()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"增强摘要生成失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="摘要生成失败")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000) 
