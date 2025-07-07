@@ -31,3 +31,8 @@ requests==2.31.0
 # 开发工具
 pytest==7.4.3
 black==23.11.0 
+
+# 在现有依赖基础上添加
+qdrant-client==1.7.0
+# 移除或注释掉 chromadb 相关依赖
+# chromadb==0.4.15 

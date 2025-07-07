@@ -260,10 +260,12 @@ app.add_middleware(RequestLoggingMiddleware)
 
 # 使用增强的向量存储
 vector_store = EnhancedVectorStore(
-    embedding_type=embedding_type,
-    embedding_config={
-        "model": os.getenv("QWEN_EMBEDDING_MODEL", "text-embedding-v1")
-    }
+    qdrant_host=os.getenv("QDRANT_HOST", "localhost"),
+    qdrant_port=int(os.getenv("QDRANT_PORT", "6333")),
+    qdrant_https=os.getenv("QDRANT_HTTPS", "false").lower() == "true",
+    qdrant_api_key=os.getenv("QDRANT_API_KEY"),
+    embedding_type=os.getenv("EMBEDDING_TYPE", "qwen"),
+    embedding_config={}
 )
 
 agent = DocumentAnalysisAgent(

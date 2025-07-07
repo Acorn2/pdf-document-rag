@@ -1,0 +1,89 @@
+service:
+  # 服务端口配置
+  http_port: 6333
+  grpc_port: 6334
+  
+  # 监听地址（0.0.0.0表示监听所有网络接口）
+  host: 0.0.0.0
+  
+  # 启用CORS（跨域资源共享）
+  enable_cors: true
+  
+  # 最大请求大小（100MB）
+  max_request_size_mb: 100
+  
+  # 最大并发搜索数
+  max_concurrent_searches: 1000
+
+storage:
+  # 数据存储路径
+  storage_path: /var/lib/qdrant/storage
+  snapshots_path: /var/lib/qdrant/snapshots
+  
+  # 性能优化配置
+  wal_capacity_mb: 64        # WAL文件大小
+  wal_segments_ahead: 2      # 预分配WAL段数量
+  
+  # 内存配置
+  max_concurrent_searches: 100
+  
+  # 优化器配置
+  optimizers:
+    # 删除阈值（20%的点被删除时触发优化）
+    deleted_threshold: 0.2
+    # 真空清理最小向量数量
+    vacuum_min_vector_number: 1000
+    # 默认段数量（0表示自动）
+    default_segment_number: 0
+    # 最大段大小
+    max_segment_size: 200000
+    # 内存映射阈值
+    memmap_threshold: 200000
+    # 索引阈值
+    indexing_threshold: 100000
+    # 刷新间隔（秒）
+    flush_interval_sec: 10
+    # 最大优化线程数
+    max_optimization_threads: 4
+
+cluster:
+  # 集群配置（单节点部署设为false）
+  enabled: false
+  
+  # 如果需要集群，配置以下参数
+  # p2p:
+  #   port: 6335
+  # consensus:
+  #   max_message_queue_size: 10000
+
+# 遥测配置
+telemetry:
+  # 禁用遥测数据收集
+  disabled: true
+
+# 日志级别
+log_level: INFO
+
+# HNSW索引全局配置
+hnsw_index:
+  # 连接数（影响索引质量和构建时间）
+  m: 16
+  # 构建时的候选数量
+  ef_construct: 200
+  # 全扫描阈值
+  full_scan_threshold: 50000
+  # 最大索引线程数（0表示自动）
+  max_indexing_threads: 0
+  # 启用磁盘存储（节省内存）
+  on_disk: true
+
+# 量化配置（可选，用于节省内存）
+quantization:
+  # 标量量化配置
+  scalar:
+    # 量化类型: int8
+    type: int8
+    # 量化阈值
+    quantile: 0.99
+    # 始终使用RAM进行重新评分
+    always_ram: true 
