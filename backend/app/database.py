@@ -96,13 +96,19 @@ class Document(Base):
     
     id = Column(String, primary_key=True, index=True)
     filename = Column(String, nullable=False)
-    file_path = Column(String, nullable=False)
+    file_path = Column(String, nullable=False)  # 本地路径（向后兼容）
     file_size = Column(Integer, nullable=False)
     file_md5 = Column(String, nullable=False, index=True)
     pages = Column(Integer, default=0)
     upload_time = Column(DateTime(timezone=True), server_default=func.now())
     status = Column(String, default="pending")
     chunk_count = Column(Integer, default=0)
+    
+    # 腾讯云COS相关字段
+    cos_object_key = Column(String, nullable=True)  # COS对象键
+    cos_file_url = Column(String, nullable=True)    # COS文件URL
+    cos_etag = Column(String, nullable=True)        # COS ETag
+    storage_type = Column(String, default="local")  # 存储类型：local/cos
     
     # 处理时间字段
     process_start_time = Column(DateTime(timezone=True), nullable=True)
@@ -120,6 +126,8 @@ class Document(Base):
             Index('idx_file_md5_status', 'file_md5', 'status'),
             Index('idx_status_upload_time', 'status', 'upload_time'),
             Index('idx_status_retry', 'status', 'retry_count'),
+            Index('idx_cos_object_key', 'cos_object_key'),  # 新增COS对象键索引
+            Index('idx_storage_type', 'storage_type'),      # 新增存储类型索引
         )
     # SQLite 的索引会在数据库创建时自动处理
 

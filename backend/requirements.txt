@@ -30,6 +30,9 @@ numpy==1.24.3
 tiktoken==0.5.1
 requests==2.31.0
 
+# 腾讯云COS SDK
+cos-python-sdk-v5==1.9.30
+
 # 开发工具
 pytest==7.4.3
 black==23.11.0 

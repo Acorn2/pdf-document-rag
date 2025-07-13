@@ -5,14 +5,16 @@ import re
 import numpy as np
 from typing import List, Dict, Optional
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from ..utils.file_storage import file_storage_manager
 import logging
 import jieba
 import jieba.analyse
+import tempfile
 
 logger = logging.getLogger(__name__)
 
 class DocumentProcessor:
-    """PDF文档处理器 - 增强版"""
+    """PDF文档处理器 - 增强版，支持COS存储"""
     
     def __init__(self, chunk_size: int = 800, chunk_overlap: int = 150):
         # 优化分块参数
@@ -44,97 +46,114 @@ class DocumentProcessor:
     def extract_text_from_pdf(self, file_path: str) -> Dict[str, any]:
         """从PDF文件中提取文本和元数据 - 增强版"""
         try:
-            with fitz.open(file_path) as doc:
-                # 检查PDF是否有密码保护
-                if doc.needs_pass:
-                    return {
-                        "metadata": {},
-                        "full_text": "",
-                        "page_texts": [],
-                        "success": False,
-                        "error": "PDF文件需要密码"
+            # 预检查文件
+            if not os.path.exists(file_path):
+                return {"success": False, "error": f"文件不存在: {file_path}"}
+            
+            file_size = os.path.getsize(file_path)
+            if file_size == 0:
+                return {"success": False, "error": "文件为空"}
+            
+            # 尝试打开PDF
+            try:
+                with fitz.open(file_path) as doc:
+                    # 检查文档是否可读
+                    if doc.page_count == 0:
+                        return {"success": False, "error": "PDF文档无页面"}
+                    
+                    # 检查PDF是否有密码保护
+                    if doc.needs_pass:
+                        return {
+                            "metadata": {},
+                            "full_text": "",
+                            "page_texts": [],
+                            "success": False,
+                            "error": "PDF文件需要密码"
+                        }
+                    
+                    # 提取基本信息
+                    metadata = {
+                        "pages": len(doc),
+                        "title": doc.metadata.get("title", ""),
+                        "author": doc.metadata.get("author", ""),
+                        "subject": doc.metadata.get("subject", ""),
+                        "keywords": doc.metadata.get("keywords", "")
                     }
-                
-                # 提取基本信息
-                metadata = {
-                    "pages": len(doc),
-                    "title": doc.metadata.get("title", ""),
-                    "author": doc.metadata.get("author", ""),
-                    "subject": doc.metadata.get("subject", ""),
-                    "keywords": doc.metadata.get("keywords", "")
-                }
-                
-                # 新增：结构化内容提取
-                structured_content = []
-                full_text = ""
-                page_texts = []
-                total_chars = 0
-                empty_pages = 0
-                
-                logger.info(f"开始处理PDF文档，共 {len(doc)} 页")
-                
-                for page_num in range(len(doc)):
-                    page = doc[page_num]
                     
-                    # 使用增强的文本提取方法
-                    page_content = self._extract_page_content_enhanced(page, page_num + 1)
+                    # 新增：结构化内容提取
+                    structured_content = []
+                    full_text = ""
+                    page_texts = []
+                    total_chars = 0
+                    empty_pages = 0
                     
-                    if page_content["success"]:
-                        structured_content.extend(page_content["blocks"])
-                        page_texts.append({
-                            "page_number": page_num + 1,
-                            "text": page_content["cleaned_text"],
-                            "char_count": len(page_content["cleaned_text"]),
-                            "blocks": page_content["blocks"]
-                        })
-                        total_chars += len(page_content["cleaned_text"])
-                    else:
-                        empty_pages += 1
-                        logger.warning(f"第{page_num + 1}页未提取到文本内容")
-                        page_texts.append({
-                            "page_number": page_num + 1,
-                            "text": "",
-                            "char_count": 0,
-                            "blocks": []
-                        })
-                
-                # 合并结构化内容为完整文本
-                full_text = self._merge_structured_content(structured_content)
-                
-                logger.info(f"PDF处理完成 - 总页数: {len(doc)}, 有效页数: {len(doc) - empty_pages}, 总字符数: {total_chars}")
-                
-                # 检查是否提取到有效内容
-                if total_chars < 100:
-                    error_msg = f"PDF文档可能是扫描版或无有效文本内容，仅提取到 {total_chars} 个字符，空页数: {empty_pages}/{len(doc)}"
-                    logger.error(error_msg)
+                    logger.info(f"开始处理PDF文档，共 {len(doc)} 页")
+                    
+                    for page_num in range(len(doc)):
+                        page = doc[page_num]
+                        
+                        # 使用增强的文本提取方法
+                        page_content = self._extract_page_content_enhanced(page, page_num + 1)
+                        
+                        if page_content["success"]:
+                            structured_content.extend(page_content["blocks"])
+                            page_texts.append({
+                                "page_number": page_num + 1,
+                                "text": page_content["cleaned_text"],
+                                "char_count": len(page_content["cleaned_text"]),
+                                "blocks": page_content["blocks"]
+                            })
+                            total_chars += len(page_content["cleaned_text"])
+                        else:
+                            empty_pages += 1
+                            logger.warning(f"第{page_num + 1}页未提取到文本内容")
+                            page_texts.append({
+                                "page_number": page_num + 1,
+                                "text": "",
+                                "char_count": 0,
+                                "blocks": []
+                            })
+                    
+                    # 合并结构化内容为完整文本
+                    full_text = self._merge_structured_content(structured_content)
+                    
+                    logger.info(f"PDF处理完成 - 总页数: {len(doc)}, 有效页数: {len(doc) - empty_pages}, 总字符数: {total_chars}")
+                    
+                    # 检查是否提取到有效内容
+                    if total_chars < 100:
+                        error_msg = f"PDF文档可能是扫描版或无有效文本内容，仅提取到 {total_chars} 个字符，空页数: {empty_pages}/{len(doc)}"
+                        logger.error(error_msg)
+                        return {
+                            "metadata": metadata,
+                            "full_text": full_text,
+                            "page_texts": page_texts,
+                            "structured_content": structured_content,
+                            "success": False,
+                            "error": error_msg
+                        }
+                    
                     return {
                         "metadata": metadata,
                         "full_text": full_text,
                         "page_texts": page_texts,
                         "structured_content": structured_content,
-                        "success": False,
-                        "error": error_msg
+                        "success": True,
+                        "error": None
                     }
-                
-                return {
-                    "metadata": metadata,
-                    "full_text": full_text,
-                    "page_texts": page_texts,
-                    "structured_content": structured_content,
-                    "success": True,
-                    "error": None
-                }
+                    
+            except fitz.fitz.FileDataError as e:
+                return {"success": False, "error": f"PDF文件数据错误: {str(e)}"}
+            except fitz.fitz.FileNotFoundError as e:
+                return {"success": False, "error": f"PDF文件未找到: {str(e)}"}
+            except Exception as e:
+                if "broken document" in str(e).lower():
+                    return {"success": False, "error": f"PDF文件损坏或格式错误: {str(e)}"}
+                else:
+                    return {"success": False, "error": f"PDF处理异常: {str(e)}"}
                 
         except Exception as e:
             logger.error(f"PDF文本提取失败: {str(e)}")
-            return {
-                "metadata": {},
-                "full_text": "",
-                "page_texts": [],
-                "structured_content": [],
-                "success": False,
-                "error": str(e)
-            }
+            return {"success": False, "error": str(e)}
     
     def _extract_page_content_enhanced(self, page, page_num: int) -> Dict:
         """增强的页面内容提取"""
@@ -499,33 +518,82 @@ class DocumentProcessor:
             logger.warning(f"质量分数计算失败: {e}")
             return 0.5
 
-    def process_document(self, file_path: str) -> Dict[str, any]:
-        """处理文档的完整流程 - 增强版"""
-        # 提取文本
-        extraction_result = self.extract_text_from_pdf(file_path)
-        
-        if not extraction_result["success"]:
-            return extraction_result
-        
-        # 智能分块
-        chunks = self.split_text_into_chunks(extraction_result["full_text"])
-        
-        # 计算处理质量指标
-        quality_metrics = self._calculate_processing_quality(
-            extraction_result, chunks
-        )
-        
-        return {
-            "metadata": extraction_result["metadata"],
-            "full_text": extraction_result["full_text"],
-            "page_texts": extraction_result["page_texts"],
-            "structured_content": extraction_result.get("structured_content", []),
-            "chunks": chunks,
-            "chunk_count": len(chunks),
-            "quality_metrics": quality_metrics,
-            "success": True,
-            "error": None
-        }
+    def process_document(self, document_id: str, storage_type: str, file_path: str, cos_object_key: str = None) -> Dict[str, any]:
+        try:
+            # 获取文件内容
+            file_content = file_storage_manager.get_file_content(
+                document_id=document_id,
+                storage_type=storage_type,
+                file_path=file_path,
+                cos_object_key=cos_object_key
+            )
+            
+            if not file_content:
+                return {"success": False, "error": "无法获取文件内容"}
+            
+            # 验证文件大小
+            if len(file_content) < 1024:  # PDF文件至少应该有1KB
+                return {"success": False, "error": "文件内容过小，可能损坏"}
+            
+            # 验证PDF文件头
+            if not file_content.startswith(b'%PDF-'):
+                return {"success": False, "error": "文件不是有效的PDF格式"}
+            
+            # 创建临时文件时确保完全写入
+            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_file:
+                temp_file.write(file_content)
+                temp_file.flush()  # 确保数据写入磁盘
+                os.fsync(temp_file.fileno())  # 强制同步到磁盘
+                temp_file_path = temp_file.name
+            
+            # 验证临时文件
+            if not os.path.exists(temp_file_path):
+                return {"success": False, "error": "临时文件创建失败"}
+            
+            temp_file_size = os.path.getsize(temp_file_path)
+            if temp_file_size != len(file_content):
+                return {"success": False, "error": f"临时文件大小不匹配：期望{len(file_content)}，实际{temp_file_size}"}
+            
+            try:
+                # 提取文本
+                extraction_result = self.extract_text_from_pdf(temp_file_path)
+                
+                if not extraction_result["success"]:
+                    return extraction_result
+                
+                # 智能分块
+                chunks = self.split_text_into_chunks(extraction_result["full_text"])
+                
+                # 计算处理质量指标
+                quality_metrics = self._calculate_processing_quality(
+                    extraction_result, chunks
+                )
+                
+                return {
+                    "metadata": extraction_result["metadata"],
+                    "full_text": extraction_result["full_text"],
+                    "page_texts": extraction_result["page_texts"],
+                    "structured_content": extraction_result.get("structured_content", []),
+                    "chunks": chunks,
+                    "chunk_count": len(chunks),
+                    "quality_metrics": quality_metrics,
+                    "success": True,
+                    "error": None
+                }
+                
+            finally:
+                # 清理临时文件
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
+                    
+        except Exception as e:
+            logger.error(f"文档处理失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
     
     def _calculate_processing_quality(self, extraction_result: Dict, chunks: List[Dict]) -> Dict:
         """计算处理质量指标"""

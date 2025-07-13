@@ -23,6 +23,7 @@ from .logging_config import setup_logging, RequestLoggingMiddleware
 from .core.enhanced_vector_store import EnhancedVectorStore
 from .core.cache_manager import cache_manager
 from .utils.file_utils import calculate_content_md5, is_duplicate_file
+from .utils.file_storage import file_storage_manager
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -130,7 +131,7 @@ class DocumentTaskProcessor:
             db.close()
     
     async def process_single_document(self, document_id: str, file_path: str, is_retry: bool = False):
-        """处理单个文档"""
+        """处理单个文档 - 支持COS存储"""
         from .database import SessionLocal
         
         db = SessionLocal()
@@ -139,6 +140,12 @@ class DocumentTaskProcessor:
                 logger.info(f"开始重试处理文档: {document_id}")
             else:
                 logger.info(f"开始处理文档: {document_id}")
+            
+            # 获取文档信息
+            document = db.query(Document).filter(Document.id == document_id).first()
+            if not document:
+                logger.error(f"文档不存在: {document_id}")
+                return
             
             # 获取处理组件
             processor = DocumentProcessor()
@@ -152,8 +159,13 @@ class DocumentTaskProcessor:
                 }
             )
             
-            # 提取文本和分块
-            result = processor.process_document(file_path)
+            # 处理文档 - 支持COS存储
+            result = processor.process_document(
+                document_id=document_id,
+                storage_type=document.storage_type,
+                file_path=document.file_path,
+                cos_object_key=document.cos_object_key
+            )
             
             if result["success"]:
                 # 创建向量存储
@@ -161,15 +173,13 @@ class DocumentTaskProcessor:
                 vector_store.add_document_chunks(document_id, result["chunks"])
                 
                 # 更新数据库状态
-                document = db.query(Document).filter(Document.id == document_id).first()
-                if document:
-                    document.status = "completed"
-                    document.pages = result["metadata"]["pages"]
-                    document.chunk_count = result["chunk_count"]
-                    document.process_end_time = datetime.now()
-                    # 成功后清空错误信息
-                    document.error_message = None
-                    db.commit()
+                document.status = "completed"
+                document.pages = result["metadata"]["pages"]
+                document.chunk_count = result["chunk_count"]
+                document.process_end_time = datetime.now()
+                # 成功后清空错误信息
+                document.error_message = None
+                db.commit()
                 
                 if is_retry:
                     logger.info(f"文档 {document_id} 重试处理成功")
@@ -177,20 +187,17 @@ class DocumentTaskProcessor:
                     logger.info(f"文档 {document_id} 处理完成")
             else:
                 # 处理失败
-                document = db.query(Document).filter(Document.id == document_id).first()
-                if document:
-                    # 检查是否已达最大重试次数
-                    if document.retry_count >= document.max_retries:
-                        document.status = "failed_permanently"  # 永久失败状态
-                        error_msg = f"文档处理失败，已达最大重试次数({document.max_retries})。最后错误: {result['error']}"
-                        logger.error(f"文档 {document_id} 永久失败: {error_msg}")
-                    else:
-                        document.status = "failed"
-                        error_msg = f"处理失败(第{document.retry_count}次重试): {result['error']}"
-                        logger.error(f"文档 {document_id} 处理失败，将稍后重试: {result['error']}")
-                    
-                    document.error_message = error_msg
-                    db.commit()
+                if document.retry_count >= document.max_retries:
+                    document.status = "failed_permanently"
+                    error_msg = f"文档处理失败，已达最大重试次数({document.max_retries})。最后错误: {result['error']}"
+                    logger.error(f"文档 {document_id} 永久失败: {error_msg}")
+                else:
+                    document.status = "failed"
+                    error_msg = f"处理失败(第{document.retry_count}次重试): {result['error']}"
+                    logger.error(f"文档 {document_id} 处理失败，将稍后重试: {result['error']}")
+                
+                document.error_message = error_msg
+                db.commit()
                 
         except Exception as e:
             # 处理异常
@@ -199,7 +206,6 @@ class DocumentTaskProcessor:
             
             document = db.query(Document).filter(Document.id == document_id).first()
             if document:
-                # 检查是否已达最大重试次数
                 if document.retry_count >= document.max_retries:
                     document.status = "failed_permanently"
                     error_msg = f"文档处理异常，已达最大重试次数({document.max_retries})。最后错误: {str(e)}"
@@ -316,7 +322,7 @@ async def upload_document(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    """上传PDF文档 - 支持重复检测"""
+    """上传PDF文档 - 支持重复检测和腾讯云COS存储"""
     
     # 验证文件类型
     if not file.filename.lower().endswith('.pdf'):
@@ -351,31 +357,42 @@ async def upload_document(
         # 生成唯一文档ID
         document_id = str(uuid.uuid4())
         
-        # 保存文件 - 只使用ID命名，保留.pdf扩展名
-        file_path = f"uploads/{document_id}.pdf"
-        with open(file_path, "wb") as buffer:
-            buffer.write(file_content)
+        # 使用文件存储管理器保存文件
+        storage_result = file_storage_manager.save_file(
+            file_content=file_content,
+            document_id=document_id,
+            filename=file.filename
+        )
+        
+        if not storage_result["success"]:
+            raise HTTPException(status_code=500, detail=f"文件保存失败: {storage_result['error']}")
         
         # 创建数据库记录
         db_document = Document(
             id=document_id,
-            filename=file.filename,  # 原始文件名仍保存在数据库中
-            file_path=file_path,
-            file_size=len(file_content),
+            filename=file.filename,
+            file_path=storage_result["file_path"],
+            file_size=storage_result["file_size"],
             file_md5=file_md5,
-            status="pending"
+            status="pending",
+            # COS相关字段
+            cos_object_key=storage_result["cos_object_key"],
+            cos_file_url=storage_result["cos_file_url"],
+            cos_etag=storage_result["cos_etag"],
+            storage_type=storage_result["storage_type"]
         )
         db.add(db_document)
         db.commit()
         
-        logger.info(f"新文档上传成功，等待处理: {document_id}")
+        storage_info = "腾讯云COS" if storage_result["storage_type"] == "cos" else "本地存储"
+        logger.info(f"新文档上传成功({storage_info})，等待处理: {document_id}")
         
         return DocumentUploadResponse(
             document_id=document_id,
             filename=file.filename,
             status=TaskStatus.PENDING,
             upload_time=datetime.now(),
-            message="文档上传成功，正在等待处理..."
+            message=f"文档上传成功({storage_info})，正在等待处理..."
         )
         
     except Exception as e:
@@ -593,16 +610,23 @@ async def generate_document_summary(document_id: str, db: Session = Depends(get_
 
 @app.delete("/api/v1/documents/{document_id}")
 async def delete_document(document_id: str, db: Session = Depends(get_db)):
-    """删除文档"""
+    """删除文档 - 支持COS和本地存储"""
     
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="文档不存在")
     
     try:
-        # 删除文件
-        if os.path.exists(document.file_path):
-            os.remove(document.file_path)
+        # 删除文件（支持COS和本地存储）
+        file_deleted = file_storage_manager.delete_file(
+            document_id=document_id,
+            storage_type=document.storage_type,
+            file_path=document.file_path,
+            cos_object_key=document.cos_object_key
+        )
+        
+        if not file_deleted:
+            logger.warning(f"文件删除失败，但继续删除数据库记录: {document_id}")
         
         # 删除向量存储
         vector_store.delete_document_collection(document_id)
@@ -818,6 +842,45 @@ async def generate_enhanced_document_summary(document_id: str, db: Session = Dep
     except Exception as e:
         logger.error(f"增强摘要生成失败: {str(e)}")
         raise HTTPException(status_code=500, detail="摘要生成失败")
+
+# 新增文件下载接口
+@app.get("/api/v1/documents/{document_id}/download")
+async def download_document(document_id: str, db: Session = Depends(get_db)):
+    """下载文档文件"""
+    
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    
+    try:
+        # 如果是COS存储，返回预签名URL
+        if document.storage_type == "cos":
+            file_url = file_storage_manager.get_file_url(
+                document_id=document_id,
+                storage_type=document.storage_type,
+                file_path=document.file_path,
+                cos_object_key=document.cos_object_key
+            )
+            
+            if file_url:
+                return {
+                    "download_url": file_url,
+                    "filename": document.filename,
+                    "expires_in": 3600,  # 1小时有效期
+                    "storage_type": "cos"
+                }
+            else:
+                raise HTTPException(status_code=500, detail="生成下载链接失败")
+        
+        # 本地存储暂不支持直接下载
+        else:
+            raise HTTPException(status_code=501, detail="本地存储暂不支持下载功能")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"文档下载失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"文档下载失败: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
