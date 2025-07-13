@@ -49,7 +49,8 @@ class QdrantAdapter:
         """检查Qdrant服务健康状态"""
         try:
             # 尝试获取集合列表来测试连接
-            self.client.get_collections()
+            collections = self.client.get_collections()
+            logger.info(f"Qdrant健康检查成功，发现 {len(collections.collections)} 个集合")
             return True
         except Exception as e:
             logger.error(f"Qdrant健康检查失败: {e}")
@@ -66,42 +67,44 @@ class QdrantAdapter:
                 logger.info(f"集合已存在: {collection_name}")
                 return True
             
-            # 创建新集合
+            # 创建新集合 - 使用简化的配置
             self.client.create_collection(
                 collection_name=collection_name,
                 vectors_config=VectorParams(
                     size=dimension,
                     distance=Distance.COSINE
                 ),
-                # 优化配置
-                optimizers_config=models.OptimizersConfig(
-                    default_segment_number=2,
-                    max_segment_size=20000,
-                    memmap_threshold=20000,
-                    indexing_threshold=20000,
-                    flush_interval_sec=5,
-                    max_optimization_threads=2
-                ),
-                # WAL配置
-                wal_config=models.WalConfig(
-                    wal_capacity_mb=32,
-                    wal_segments_ahead=0
-                ),
-                # HNSW配置
-                hnsw_config=models.HnswConfig(
-                    m=16,
-                    ef_construct=100,
-                    full_scan_threshold=10000,
-                    max_indexing_threads=0,
-                    on_disk=True  # 启用磁盘存储以节省内存
-                )
+                # 使用字典格式的优化配置
+                optimizers_config={
+                    "deleted_threshold": 0.2,
+                    "vacuum_min_vector_number": 1000,
+                    "default_segment_number": 2,
+                    "max_segment_size": 20000,
+                    "memmap_threshold": 20000,
+                    "indexing_threshold": 20000,
+                    "flush_interval_sec": 5,
+                    "max_optimization_threads": 2
+                },
+                # 使用字典格式的WAL配置
+                wal_config={
+                    "wal_capacity_mb": 32,
+                    "wal_segments_ahead": 0
+                },
+                # 使用字典格式的HNSW配置
+                hnsw_config={
+                    "m": 16,
+                    "ef_construct": 100,
+                    "full_scan_threshold": 10000,
+                    "max_indexing_threads": 0,
+                    "on_disk": True
+                }
             )
             
             logger.info(f"Qdrant集合创建成功: {collection_name}")
             return True
             
         except Exception as e:
-            logger.error(f"Qdrant集合创建失败: {e}")
+            logger.error(f"创建Qdrant集合失败: {e}")
             return False
     
     def add_points(self, collection_name: str, points: List[Dict]) -> bool:
