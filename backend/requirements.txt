@@ -3,8 +3,9 @@ fastapi==0.104.1
 uvicorn[standard]==0.24.0
 python-multipart==0.0.6
 
-# 数据库（只保留SQLite支持）
+# 数据库
 sqlalchemy==2.0.23
+psycopg2-binary==2.9.9  # PostgreSQL支持
 
 # LangChain相关
 langchain==0.0.335
