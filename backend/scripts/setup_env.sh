@@ -69,10 +69,10 @@ else
 fi
 echo "  API_PORT: ${API_PORT:-8000}"
 
-# 创建必要目录
+
 mkdir -p uploads vector_db logs
 
-# 环境特定的检查和设置
+
 if [ "$ENVIRONMENT" = "production" ]; then
     echo "🔍 检查生产环境配置..."
     
