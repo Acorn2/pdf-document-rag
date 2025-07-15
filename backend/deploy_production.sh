@@ -45,6 +45,15 @@ deploy_with_systemd() {
         exit 1
     fi
     
+    # 获取实际的API端口值
+    local api_port="${API_PORT:-8000}"
+    local current_user=$(whoami)
+    
+    echo "📋 服务配置："
+    echo "  端口: $api_port"
+    echo "  用户: $current_user"
+    echo "  工作目录: $PROJECT_DIR"
+    
     # 创建服务文件
     cat > "$service_file" << EOF
 [Unit]
@@ -54,11 +63,11 @@ Wants=postgresql.service
 
 [Service]
 Type=exec
-User=$(whoami)
+User=$current_user
 WorkingDirectory=$PROJECT_DIR
-Environment=PATH=$VENV_DIR/bin:\$PATH
+Environment=PATH=$VENV_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EnvironmentFile=$PROJECT_DIR/.env.production
-ExecStart=$VENV_DIR/bin/uvicorn app.main:app --host 0.0.0.0 --port \${API_PORT:-8000} --workers 2
+ExecStart=$VENV_DIR/bin/uvicorn app.main:app --host 0.0.0.0 --port $api_port --workers 2
 ExecReload=/bin/kill -HUP \$MAINPID
 KillMode=mixed
 Restart=always
