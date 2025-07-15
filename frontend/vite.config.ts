@@ -7,6 +7,7 @@ export default defineConfig(({ command, mode }) => {
   
   return {
     plugins: [vue()],
+    base: mode === 'production' ? '/pdf/' : '/',  // 生产环境使用子路径
     resolve: {
       alias: {
         '@': resolve(__dirname, 'src'),
