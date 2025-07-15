@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc && vite build",
+    "build": "vite build",
+    "build:check": "vue-tsc && vite build",
     "build:prod": "vue-tsc && vite build --mode production",
     "preview": "vite preview --host 0.0.0.0 --port 3000",
     "preview:prod": "vite preview --mode production --port 3000 --host 0.0.0.0",

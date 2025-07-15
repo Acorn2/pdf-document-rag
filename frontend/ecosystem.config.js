@@ -1,4 +1,4 @@
-module.exports = {
+export default {
   apps: [{
     name: 'pdf-frontend',
     script: 'npm',
