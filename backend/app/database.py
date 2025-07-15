@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, String, Integer, DateTime, Text, Float, text, Index
+from sqlalchemy import create_engine, Column, String, Integer, DateTime, Text, Float, text, Index, inspect
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.sql import func
@@ -193,6 +193,30 @@ def create_tables():
         logger.error(f"数据库配置 - 类型: {DB_TYPE}, URL: {DATABASE_URL}")
         logger.error(f"连接池配置: {POOL_CONFIG}")
         raise
+
+def check_tables_exist():
+    """检查数据库表是否已存在"""
+    try:
+        inspector = inspect(engine)
+        
+        # 检查核心表是否存在
+        required_tables = ["documents", "query_history"]
+        existing_tables = [table for table in required_tables if inspector.has_table(table)]
+        
+        # 如果所有必需的表都存在，则返回True
+        tables_exist = len(existing_tables) == len(required_tables)
+        
+        if tables_exist:
+            logger.info("数据库表检查: 所有必需的表都已存在")
+        else:
+            missing_tables = set(required_tables) - set(existing_tables)
+            logger.info(f"数据库表检查: 缺少以下表: {', '.join(missing_tables)}")
+        
+        return tables_exist
+    except Exception as e:
+        logger.error(f"检查数据库表失败: {e}")
+        # 出错时返回False，让程序尝试创建表
+        return False
 
 def get_db_info():
     """获取数据库信息"""
