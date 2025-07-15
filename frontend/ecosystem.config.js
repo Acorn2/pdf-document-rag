@@ -3,7 +3,7 @@ export default {
     name: 'pdf-frontend',
     script: 'npm',
     args: 'run preview',
-    cwd: '/my/project/pdf-document-rag/frontend',
+    cwd: process.cwd(), // 使用当前目录，自动适配路径
     instances: 1,
     autorestart: true,
     watch: false,
