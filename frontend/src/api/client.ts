@@ -7,8 +7,11 @@ class ApiClient {
   private client: AxiosInstance
 
   constructor() {
+    // 使用环境变量配置API基础URL
+    const baseURL = import.meta.env.VITE_API_BASE_URL || '/api'
+    
     this.client = axios.create({
-      baseURL: '/api',
+      baseURL,
       timeout: 60000,
     })
 
