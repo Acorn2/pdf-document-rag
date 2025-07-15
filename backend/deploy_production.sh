@@ -30,110 +30,6 @@ if [ "$DEPLOY_MODE" = "auto" ]; then
     fi
 fi
 
-echo "📋 部署配置："
-echo "  项目目录: $PROJECT_DIR"
-echo "  部署模式: $DEPLOY_MODE"
-echo "  服务名称: $SERVICE_NAME"
-echo "  用户权限: $(if [ "$IS_ROOT" = true ]; then echo "root"; else echo "$(whoami)"; fi)"
-
-# 调用环境设置脚本
-echo "🔧 设置生产环境..."
-./scripts/setup_env.sh production
-
-# 读取设置结果
-if [ -f "/tmp/setup_env_result" ]; then
-    source /tmp/setup_env_result
-    rm -f /tmp/setup_env_result
-fi
-
-# 加载环境变量
-if [ -f ".env.production" ]; then
-    echo "📋 加载生产环境变量..."
-    export $(grep -v '^#' .env.production | xargs)
-    echo "✅ 环境变量加载完成"
-fi
-
-# 创建日志目录
-mkdir -p "$LOG_DIR"
-
-# 检查并安装依赖
-echo "🐍 准备Python环境..."
-if ! command -v python3 &> /dev/null; then
-    echo "❌ 未找到Python3，请先安装Python3"
-    exit 1
-fi
-
-# 创建虚拟环境
-if [ ! -d "$VENV_DIR" ]; then
-    echo "🐍 创建Python虚拟环境..."
-    python3 -m venv "$VENV_DIR"
-fi
-
-# 安装依赖
-echo "📦 安装依赖..."
-source "$VENV_DIR/bin/activate"
-pip install --upgrade pip
-pip install -r requirements.txt
-
-# 检查关键依赖
-echo "🔍 检查关键依赖..."
-python -c "
-try:
-    import fastapi, dashscope, langchain, sqlalchemy, psycopg2
-    print('✅ 所有关键依赖检查通过')
-except ImportError as e:
-    print(f'❌ 依赖检查失败: {e}')
-    exit(1)
-"
-
-# 测试数据库连接
-echo "🗄️  测试数据库连接..."
-python -c "
-from app.database import get_db_session, get_db_info
-try:
-    print('数据库配置:', get_db_info())
-    db = get_db_session()
-    db.close()
-    print('✅ 数据库连接测试成功')
-except Exception as e:
-    print(f'❌ 数据库连接失败: {e}')
-    exit(1)
-"
-
-# 初始化数据库
-echo "🗄️  初始化数据库..."
-python -c "
-from app.database import create_tables
-try:
-    create_tables()
-    print('✅ 数据库表初始化完成')
-except Exception as e:
-    print(f'❌ 数据库初始化失败: {e}')
-    exit(1)
-"
-
-# 根据部署模式启动服务
-if [ "$DEPLOY_MODE" = "systemd" ]; then
-    echo "📋 使用systemd服务模式部署..."
-    deploy_with_systemd
-elif [ "$DEPLOY_MODE" = "screen" ]; then
-    echo "📋 使用screen会话模式部署..."
-    deploy_with_screen
-else
-    echo "❌ 未知的部署模式: $DEPLOY_MODE"
-    exit 1
-fi
-
-# 等待服务启动
-echo "⏳ 等待服务启动..."
-sleep 5
-
-# 检查服务状态
-check_service_status
-
-echo "🎉 部署完成！"
-show_service_info
-
 # systemd 部署函数
 deploy_with_systemd() {
     local service_file="/etc/systemd/system/${SERVICE_NAME}.service"
@@ -283,4 +179,109 @@ show_service_info() {
     echo "  重启服务: ./manage_service.sh restart"
     echo "  停止服务: ./manage_service.sh stop"
     echo ""
-} 
+}
+
+# 主执行流程开始
+echo "📋 部署配置："
+echo "  项目目录: $PROJECT_DIR"
+echo "  部署模式: $DEPLOY_MODE"
+echo "  服务名称: $SERVICE_NAME"
+echo "  用户权限: $(if [ "$IS_ROOT" = true ]; then echo "root"; else echo "$(whoami)"; fi)"
+
+# 调用环境设置脚本
+echo "🔧 设置生产环境..."
+./scripts/setup_env.sh production
+
+# 读取设置结果
+if [ -f "/tmp/setup_env_result" ]; then
+    source /tmp/setup_env_result
+    rm -f /tmp/setup_env_result
+fi
+
+# 加载环境变量
+if [ -f ".env.production" ]; then
+    echo "📋 加载生产环境变量..."
+    export $(grep -v '^#' .env.production | xargs)
+    echo "✅ 环境变量加载完成"
+fi
+
+# 创建日志目录
+mkdir -p "$LOG_DIR"
+
+# 检查并安装依赖
+echo "🐍 准备Python环境..."
+if ! command -v python3 &> /dev/null; then
+    echo "❌ 未找到Python3，请先安装Python3"
+    exit 1
+fi
+
+# 创建虚拟环境
+if [ ! -d "$VENV_DIR" ]; then
+    echo "🐍 创建Python虚拟环境..."
+    python3 -m venv "$VENV_DIR"
+fi
+
+# 安装依赖
+echo "📦 安装依赖..."
+source "$VENV_DIR/bin/activate"
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# 检查关键依赖
+echo "🔍 检查关键依赖..."
+python -c "
+try:
+    import fastapi, dashscope, langchain, sqlalchemy, psycopg2
+    print('✅ 所有关键依赖检查通过')
+except ImportError as e:
+    print(f'❌ 依赖检查失败: {e}')
+    exit(1)
+"
+
+# 测试数据库连接
+echo "🗄️  测试数据库连接..."
+python -c "
+from app.database import get_db_session, get_db_info
+try:
+    print('数据库配置:', get_db_info())
+    db = get_db_session()
+    db.close()
+    print('✅ 数据库连接测试成功')
+except Exception as e:
+    print(f'❌ 数据库连接失败: {e}')
+    exit(1)
+"
+
+# 初始化数据库
+echo "🗄️  初始化数据库..."
+python -c "
+from app.database import create_tables
+try:
+    create_tables()
+    print('✅ 数据库表初始化完成')
+except Exception as e:
+    print(f'❌ 数据库初始化失败: {e}')
+    exit(1)
+"
+
+# 根据部署模式启动服务
+if [ "$DEPLOY_MODE" = "systemd" ]; then
+    echo "📋 使用systemd服务模式部署..."
+    deploy_with_systemd
+elif [ "$DEPLOY_MODE" = "screen" ]; then
+    echo "📋 使用screen会话模式部署..."
+    deploy_with_screen
+else
+    echo "❌ 未知的部署模式: $DEPLOY_MODE"
+    exit 1
+fi
+
+# 等待服务启动
+echo "⏳ 等待服务启动..."
+sleep 5
+
+# 检查服务状态
+check_service_status
+
+echo "🎉 部署完成！"
+show_service_info 
