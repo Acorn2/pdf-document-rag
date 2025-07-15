@@ -30,6 +30,89 @@ if [ "$DEPLOY_MODE" = "auto" ]; then
     fi
 fi
 
+# 优雅关闭服务函数
+graceful_shutdown() {
+    local mode=$(detect_service_mode)
+    echo "🛑 优雅关闭服务..."
+    
+    case $mode in
+        "systemd")
+            echo "发送SIGTERM信号给服务..."
+            systemctl stop "$SERVICE_NAME"
+            
+            # 等待服务完全停止
+            local max_wait=30
+            local count=0
+            while systemctl is-active --quiet "$SERVICE_NAME" && [ $count -lt $max_wait ]; do
+                echo "等待服务停止... ($count/$max_wait)"
+                sleep 1
+                ((count++))
+            done
+            
+            if systemctl is-active --quiet "$SERVICE_NAME"; then
+                echo "⚠️ 服务未能在$max_wait秒内停止，将强制终止"
+                systemctl kill -s 9 "$SERVICE_NAME"
+            else
+                echo "✅ 服务已优雅停止"
+            fi
+            ;;
+        "screen")
+            # 首先尝试发送SIGTERM信号
+            if screen -list | grep -q "$SERVICE_NAME"; then
+                echo "发送SIGTERM信号给screen会话..."
+                screen -S "$SERVICE_NAME" -X stuff $'\003'  # 发送Ctrl+C
+                
+                # 等待会话结束
+                local max_wait=30
+                local count=0
+                while screen -list | grep -q "$SERVICE_NAME" && [ $count -lt $max_wait ]; do
+                    echo "等待会话结束... ($count/$max_wait)"
+                    sleep 1
+                    ((count++))
+                done
+                
+                if screen -list | grep -q "$SERVICE_NAME"; then
+                    echo "⚠️ 会话未能在$max_wait秒内结束，将强制终止"
+                    screen -S "$SERVICE_NAME" -X quit
+                else
+                    echo "✅ 会话已优雅结束"
+                fi
+            else
+                echo "⚠️ 服务未运行"
+            fi
+            ;;
+        "none")
+            echo "⚠️ 服务未运行"
+            ;;
+    esac
+    
+    # 检查是否有残留的uvicorn进程
+    local uvicorn_pids=$(pgrep -f "uvicorn app.main:app")
+    if [ -n "$uvicorn_pids" ]; then
+        echo "发现残留的uvicorn进程，发送SIGTERM信号..."
+        kill $uvicorn_pids
+        sleep 3
+        
+        # 检查是否仍在运行
+        uvicorn_pids=$(pgrep -f "uvicorn app.main:app")
+        if [ -n "$uvicorn_pids" ]; then
+            echo "⚠️ uvicorn进程未能正常终止，将强制终止"
+            kill -9 $uvicorn_pids
+        fi
+    fi
+}
+
+# 检测服务运行模式
+detect_service_mode() {
+    if systemctl is-active "$SERVICE_NAME" &>/dev/null; then
+        echo "systemd"
+    elif screen -list | grep -q "$SERVICE_NAME"; then
+        echo "screen"
+    else
+        echo "none"
+    fi
+}
+
 # systemd 部署函数
 deploy_with_systemd() {
     local service_file="/etc/systemd/system/${SERVICE_NAME}.service"
@@ -43,6 +126,12 @@ deploy_with_systemd() {
         echo "  sudo $0 systemd"
         echo "  $0 screen  # 使用screen模式"
         exit 1
+    fi
+    
+    # 检查服务是否已运行
+    if systemctl is-active --quiet "$SERVICE_NAME"; then
+        echo "⚠️ 服务已在运行，执行优雅关闭..."
+        graceful_shutdown
     fi
     
     # 获取实际的API端口值
@@ -74,6 +163,8 @@ Restart=always
 RestartSec=5
 StandardOutput=append:$LOG_DIR/service.log
 StandardError=append:$LOG_DIR/service.error.log
+# 添加优雅关闭配置
+TimeoutStopSec=30
 
 # 安全设置
 NoNewPrivileges=true
@@ -112,9 +203,8 @@ deploy_with_screen() {
     
     # 检查是否已有运行的服务
     if screen -list | grep -q "$SERVICE_NAME"; then
-        echo "⚠️  发现已运行的服务会话，正在停止..."
-        screen -S "$SERVICE_NAME" -X quit 2>/dev/null || true
-        sleep 2
+        echo "⚠️ 发现已运行的服务会话，执行优雅关闭..."
+        graceful_shutdown
     fi
     
     # 创建启动脚本
@@ -130,6 +220,16 @@ fi
 
 # 激活虚拟环境
 source venv/bin/activate
+
+# 定义信号处理函数
+graceful_shutdown() {
+    echo "接收到停止信号，正在优雅关闭..."
+    # 这里可以添加任何清理操作
+    exit 0
+}
+
+# 注册信号处理
+trap graceful_shutdown SIGINT SIGTERM
 
 # 启动服务
 exec uvicorn app.main:app --host 0.0.0.0 --port ${API_PORT:-8000} --workers 2 \
@@ -197,6 +297,21 @@ echo "  部署模式: $DEPLOY_MODE"
 echo "  服务名称: $SERVICE_NAME"
 echo "  用户权限: $(if [ "$IS_ROOT" = true ]; then echo "root"; else echo "$(whoami)"; fi)"
 
+# 检查是否已有服务运行
+current_mode=$(detect_service_mode)
+if [ "$current_mode" != "none" ]; then
+    echo "⚠️ 检测到服务已在运行（模式：$current_mode）"
+    if [ "${FORCE_RESTART:-false}" != "true" ]; then
+        read -p "是否优雅关闭并重新部署？(y/n): " confirm
+        if [[ "$confirm" != [yY] ]]; then
+            echo "❌ 部署已取消"
+            exit 0
+        fi
+    fi
+    echo "执行优雅关闭..."
+    graceful_shutdown
+fi
+
 # 调用环境设置脚本
 echo "🔧 设置生产环境..."
 ./scripts/setup_env.sh production
@@ -262,12 +377,15 @@ except Exception as e:
 "
 
 # 初始化数据库
-echo "🗄️  初始化数据库..."
+echo "🗄️ 初始化数据库..."
 python -c "
-from app.database import create_tables
+from app.database import create_tables, check_tables_exist
 try:
-    create_tables()
-    print('✅ 数据库表初始化完成')
+    if check_tables_exist():
+        print('ℹ️ 数据库表已存在，跳过初始化')
+    else:
+        create_tables()
+        print('✅ 数据库表初始化完成')
 except Exception as e:
     print(f'❌ 数据库初始化失败: {e}')
     exit(1)

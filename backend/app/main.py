@@ -324,17 +324,19 @@ async def upload_document(
 ):
     """上传PDF文档 - 支持重复检测和腾讯云COS存储"""
     
+    # 先读取文件内容，验证文件类型和大小
+    file_content = await file.read()
+    
     # 验证文件类型
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="只支持PDF文件")
     
     # 验证文件大小（50MB限制）
-    file_content = await file.read()
     if len(file_content) > 50 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="文件大小不能超过50MB")
     
     try:
-        # 计算文件MD5
+        # 计算MD5等不涉及数据库的操作
         file_md5 = calculate_content_md5(file_content)
         logger.info(f"文件 {file.filename} MD5: {file_md5}")
         
@@ -357,45 +359,57 @@ async def upload_document(
         # 生成唯一文档ID
         document_id = str(uuid.uuid4())
         
-        # 使用文件存储管理器保存文件
-        storage_result = file_storage_manager.save_file(
-            file_content=file_content,
-            document_id=document_id,
-            filename=file.filename
-        )
-        
-        if not storage_result["success"]:
-            raise HTTPException(status_code=500, detail=f"文件保存失败: {storage_result['error']}")
-        
-        # 创建数据库记录
-        db_document = Document(
-            id=document_id,
-            filename=file.filename,
-            file_path=storage_result["file_path"],
-            file_size=storage_result["file_size"],
-            file_md5=file_md5,
-            status="pending",
-            # COS相关字段
-            cos_object_key=storage_result["cos_object_key"],
-            cos_file_url=storage_result["cos_file_url"],
-            cos_etag=storage_result["cos_etag"],
-            storage_type=storage_result["storage_type"]
-        )
-        db.add(db_document)
-        db.commit()
-        
-        storage_info = "腾讯云COS" if storage_result["storage_type"] == "cos" else "本地存储"
-        logger.info(f"新文档上传成功({storage_info})，等待处理: {document_id}")
-        
-        return DocumentUploadResponse(
-            document_id=document_id,
-            filename=file.filename,
-            status=TaskStatus.PENDING,
-            upload_time=datetime.now(),
-            message=f"文档上传成功({storage_info})，正在等待处理..."
-        )
-        
+        # 开始一个新的事务
+        try:
+            # 使用文件存储管理器保存文件
+            storage_result = file_storage_manager.save_file(
+                file_content=file_content,
+                document_id=document_id,
+                filename=file.filename
+            )
+            
+            if not storage_result["success"]:
+                raise HTTPException(status_code=500, detail=f"文件保存失败: {storage_result['error']}")
+            
+            # 创建数据库记录
+            db_document = Document(
+                id=document_id,
+                filename=file.filename,
+                file_path=storage_result["file_path"],
+                file_size=storage_result["file_size"],
+                file_md5=file_md5,
+                status="pending",
+                # COS相关字段
+                cos_object_key=storage_result["cos_object_key"],
+                cos_file_url=storage_result["cos_file_url"],
+                cos_etag=storage_result["cos_etag"],
+                storage_type=storage_result["storage_type"]
+            )
+            db.add(db_document)
+            db.commit()
+            
+            storage_info = "腾讯云COS" if storage_result["storage_type"] == "cos" else "本地存储"
+            logger.info(f"新文档上传成功({storage_info})，等待处理: {document_id}")
+            
+            return DocumentUploadResponse(
+                document_id=document_id,
+                filename=file.filename,
+                status=TaskStatus.PENDING,
+                upload_time=datetime.now(),
+                message=f"文档上传成功({storage_info})，正在等待处理..."
+            )
+        except Exception as db_error:
+            # 回滚事务
+            db.rollback()
+            # 可能需要从COS删除已上传的文件
+            logger.error(f"数据库操作失败: {str(db_error)}")
+            raise HTTPException(status_code=500, detail=f"数据库操作失败: {str(db_error)}")
     except Exception as e:
+        # 确保在任何情况下都回滚事务
+        try:
+            db.rollback()
+        except:
+            pass
         logger.error(f"文档上传失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"文档上传失败: {str(e)}")
 
