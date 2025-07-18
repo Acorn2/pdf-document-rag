@@ -7,6 +7,7 @@ import os
 from dotenv import load_dotenv
 import time
 import logging
+import functools # Added for retry_on_lock decorator
 
 # 加载环境变量
 load_dotenv()
@@ -234,3 +235,76 @@ def get_db_info():
 
 # 在模块加载时记录数据库配置信息
 logger.info(f"数据库配置完成: {get_db_info()}") 
+
+def with_table_lock(func):
+    """装饰器：在操作前获取表的访问排他锁"""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        db = kwargs.get('db') or next((arg for arg in args if hasattr(arg, 'execute')), None)
+        if db:
+            db.execute(text("LOCK TABLE documents IN ACCESS EXCLUSIVE MODE NOWAIT"))
+        return func(*args, **kwargs)
+    return wrapper
+
+@with_table_lock
+def create_tables(db=None):
+    """创建数据库表，带表锁"""
+    if db is None:
+        db = SessionLocal()
+    try:
+        Base.metadata.create_all(bind=engine)
+        return True
+    finally:
+        if db:
+            db.close()
+
+def retry_on_lock(max_attempts=3, retry_delay=1):
+    """装饰器：在遇到锁错误时自动重试"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_error = None
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    if 'lock' in str(e).lower() or 'deadlock' in str(e).lower():
+                        logger.warning(f"遇到锁错误，重试 {attempt+1}/{max_attempts}: {e}")
+                        last_error = e
+                        time.sleep(retry_delay)
+                        continue
+                    raise
+            raise last_error
+        return wrapper
+    return decorator
+
+@retry_on_lock()
+def safe_query_documents(db, status="pending", limit=5):
+    """安全查询文档，带重试机制"""
+    return db.query(Document).filter(Document.status == status).limit(limit).all()
+
+def safe_initialize_database():
+    """安全地初始化数据库，避免死锁"""
+    try:
+        # 获取独占锁
+        with engine.connect() as conn:
+            # 设置较短的锁超时
+            conn.execute(text("SET lock_timeout = '5000'"))
+            
+            # 检查表是否存在
+            if not check_tables_exist():
+                # 确保没有其他连接在使用表
+                conn.execute(text("""
+                    SELECT pg_terminate_backend(pid) 
+                    FROM pg_stat_activity 
+                    WHERE query LIKE '%documents%' 
+                    AND pid != pg_backend_pid()
+                """))
+                
+                # 创建表
+                create_tables()
+            
+            conn.commit()
+    except Exception as e:
+        logger.error(f"安全初始化数据库失败: {e}")
+        raise 
