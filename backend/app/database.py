@@ -36,14 +36,14 @@ def get_database_config():
         db_type = os.getenv("DB_TYPE", "sqlite").lower()
         
         if db_type == "sqlite":
-            db_name = os.getenv("DB_NAME", "document_analysis.db")
+            db_name = os.getenv("DB_NAME", "pdf_analysis.db")
             database_url = f"sqlite:///./{db_name}"
         elif db_type == "postgresql":
             host = os.getenv("DB_HOST", "localhost")
             port = os.getenv("DB_PORT", "5432")
             user = os.getenv("DB_USER", "postgres")
             password = os.getenv("DB_PASSWORD", "postgres")
-            db_name = os.getenv("DB_NAME", "document_analysis")
+            db_name = os.getenv("DB_NAME", "pdf_analysis")
             database_url = f"postgresql://{user}:{password}@{host}:{port}/{db_name}"
         else:
             raise ValueError(f"不支持的数据库类型: {db_type}")

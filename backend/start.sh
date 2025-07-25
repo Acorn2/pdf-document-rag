@@ -47,8 +47,8 @@ fi
 
 # 安装依赖
 echo "📦 安装依赖..."
-# pip install -r requirements.txt
-pip install --ignore-installed -r requirements.txt
+pip install -r requirements.txt
+# pip install --ignore-installed -r requirements.txt
 
 # 安装PostgreSQL依赖
 echo "📦 安装PostgreSQL依赖..."
@@ -76,7 +76,7 @@ db_host = os.getenv('DB_HOST', 'localhost')
 db_port = os.getenv('DB_PORT', '5432')
 db_user = os.getenv('DB_USER', 'postgres')
 db_password = os.getenv('DB_PASSWORD', 'postgres')
-db_name = os.getenv('DB_NAME', 'document_analysis')
+db_name = os.getenv('DB_NAME', 'pdf_analysis')
 
 print(f'尝试连接到: {db_host}:{db_port}')
 print(f'用户: {db_user}')
@@ -148,7 +148,7 @@ sleep 3
 if kill -0 $API_PID 2>/dev/null; then
     echo "✅ PostgreSQL环境启动完成！"
     echo ""
-    echo "🗄️  数据库: PostgreSQL (${DB_HOST:-localhost}:${DB_PORT:-5432}/${DB_NAME:-document_analysis})"
+    echo "🗄️  数据库: PostgreSQL (${DB_HOST:-localhost}:${DB_PORT:-5432}/${DB_NAME:-pdf_analysis})"
     echo "🔗 后端API: http://localhost:${API_PORT:-8000}"
     echo "📚 API文档: http://localhost:${API_PORT:-8000}/docs"
     echo "🔧 数据库信息: http://localhost:${API_PORT:-8000}/api/v1/database/info"

@@ -64,7 +64,7 @@ API_PID=$!
 
 echo "✅ 本地开发环境启动完成！"
 echo ""
-echo "🗄️  数据库: SQLite (本地文件: ./document_analysis.db)"
+echo "🗄️  数据库: SQLite (本地文件: ./pdf_analysis.db)"
 echo "🔗 后端API: http://localhost:${API_PORT:-8000}"
 echo "📚 API文档: http://localhost:${API_PORT:-8000}/docs"
 echo "🔧 数据库信息: http://localhost:${API_PORT:-8000}/api/v1/database/info"

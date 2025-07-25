@@ -23,7 +23,7 @@ if [ "$ENVIRONMENT" = "development" ]; then
     # 导出SQLite环境变量
     export ENVIRONMENT=development
     export DB_TYPE=sqlite
-    export DATABASE_URL=sqlite:///./document_analysis.db
+    export DATABASE_URL=sqlite:///./pdf_analysis.db
     export API_PORT=8000
     
 elif [ "$ENVIRONMENT" = "production" ]; then
@@ -43,7 +43,7 @@ elif [ "$ENVIRONMENT" = "local" ]; then
     # 导出本地SQLite环境变量
     export ENVIRONMENT=development
     export DB_TYPE=sqlite
-    export DATABASE_URL=sqlite:///./document_analysis.db
+    export DATABASE_URL=sqlite:///./pdf_analysis.db
     export API_PORT=8000
 fi
 

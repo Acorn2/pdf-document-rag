@@ -153,7 +153,7 @@ RAG处理流程 (V3)
 ```env
 DASHSCOPE_API_KEY=你的通义千问密钥
 LLM_TYPE=qwen
-DATABASE_URL=sqlite:///./document_analysis.db
+DATABASE_URL=sqlite:///./pdf_analysis.db
 CHUNK_SIZE=1000
 ```
 
@@ -161,8 +161,8 @@ CHUNK_SIZE=1000
 ```env
 DASHSCOPE_API_KEY=你的通义千问密钥
 LLM_TYPE=qwen
-DATABASE_URL=sqlite:///./document_analysis.db  # 开发环境
-# DATABASE_URL=postgresql://user:password@localhost:5432/document_analysis  # 生产环境
+DATABASE_URL=sqlite:///./pdf_analysis.db  # 开发环境
+# DATABASE_URL=postgresql://user:password@localhost:5432/pdf_analysis  # 生产环境
 CHUNK_SIZE=1000
 QDRANT_HOST=localhost
 QDRANT_PORT=6333
@@ -173,7 +173,7 @@ QDRANT_PORT=6333
 # 基础配置
 DASHSCOPE_API_KEY=你的通义千问密钥
 LLM_TYPE=qwen
-DATABASE_URL=postgresql://user:password@localhost:5432/document_analysis
+DATABASE_URL=postgresql://user:password@localhost:5432/pdf_analysis
 
 # Qdrant配置
 QDRANT_HOST=localhost
